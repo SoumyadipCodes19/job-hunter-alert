@@ -9,7 +9,148 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
-      [_ in never]: never
+      jobs: {
+        Row: {
+          company_id: string
+          description: string | null
+          id: string
+          is_new: boolean | null
+          location: string | null
+          posted_date: string | null
+          scraped_at: string
+          title: string
+          url: string | null
+        }
+        Insert: {
+          company_id: string
+          description?: string | null
+          id?: string
+          is_new?: boolean | null
+          location?: string | null
+          posted_date?: string | null
+          scraped_at?: string
+          title: string
+          url?: string | null
+        }
+        Update: {
+          company_id?: string
+          description?: string | null
+          id?: string
+          is_new?: boolean | null
+          location?: string | null
+          posted_date?: string | null
+          scraped_at?: string
+          title?: string
+          url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "jobs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "tracked_companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      keywords: {
+        Row: {
+          created_at: string
+          id: string
+          keyword: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          keyword: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          keyword?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      notifications: {
+        Row: {
+          email_sent: boolean | null
+          id: string
+          job_id: string
+          keyword_matched: string
+          sent_at: string
+          user_id: string
+        }
+        Insert: {
+          email_sent?: boolean | null
+          id?: string
+          job_id: string
+          keyword_matched: string
+          sent_at?: string
+          user_id: string
+        }
+        Update: {
+          email_sent?: boolean | null
+          id?: string
+          job_id?: string
+          keyword_matched?: string
+          sent_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          email: string
+          id: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          id: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          id?: string
+        }
+        Relationships: []
+      }
+      tracked_companies: {
+        Row: {
+          career_page_url: string
+          company_name: string
+          created_at: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          career_page_url: string
+          company_name: string
+          created_at?: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          career_page_url?: string
+          company_name?: string
+          created_at?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
