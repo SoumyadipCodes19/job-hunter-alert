@@ -8,6 +8,7 @@ import CompanyForm from './CompanyForm';
 import KeywordForm from './KeywordForm';
 import JobsList from './JobsList';
 import { useToast } from '@/hooks/use-toast';
+import { RefreshCw } from 'lucide-react';
 
 interface DashboardProps {
   user: User;
@@ -15,6 +16,7 @@ interface DashboardProps {
 
 const Dashboard = ({ user }: DashboardProps) => {
   const { toast } = useToast();
+  const [isScrapingLoading, setIsScrapingLoading] = useState(false);
 
   const handleSignOut = async () => {
     const { error } = await supabase.auth.signOut();
@@ -27,6 +29,31 @@ const Dashboard = ({ user }: DashboardProps) => {
     }
   };
 
+  const handleManualScraping = async () => {
+    setIsScrapingLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('job-scraper');
+      
+      if (error) throw error;
+      
+      toast({
+        title: "Scraping completed!",
+        description: `Found ${data.stats?.new_jobs_found || 0} new jobs, sent ${data.stats?.notifications_sent || 0} notifications`,
+      });
+      
+      // Refresh the jobs list
+      window.location.reload();
+    } catch (error: any) {
+      toast({
+        title: "Scraping failed",
+        description: error.message,
+        variant: "destructive"
+      });
+    } finally {
+      setIsScrapingLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white shadow-sm border-b">
@@ -34,6 +61,15 @@ const Dashboard = ({ user }: DashboardProps) => {
           <div className="flex justify-between items-center py-4">
             <h1 className="text-2xl font-bold text-gray-900">Job Tracker</h1>
             <div className="flex items-center space-x-4">
+              <Button 
+                onClick={handleManualScraping} 
+                disabled={isScrapingLoading}
+                variant="outline"
+                size="sm"
+              >
+                <RefreshCw className={`h-4 w-4 mr-2 ${isScrapingLoading ? 'animate-spin' : ''}`} />
+                {isScrapingLoading ? 'Scraping...' : 'Run Scraper'}
+              </Button>
               <span className="text-sm text-gray-600">{user.email}</span>
               <Button onClick={handleSignOut} variant="outline">
                 Sign Out

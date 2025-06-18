@@ -1,1 +1,8 @@
+
 project_id = "qaamybhhcftortusmbzr"
+
+[functions.job-scraper]
+verify_jwt = false
+
+[functions.job-scheduler]
+verify_jwt = false
