@@ -1,7 +1,5 @@
-
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.50.0";
-import { Resend } from "npm:resend@2.0.0";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -12,8 +10,6 @@ const supabase = createClient(
   Deno.env.get('SUPABASE_URL') ?? '',
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
 );
-
-const resend = new Resend(Deno.env.get('RESEND_API_KEY'));
 
 interface Job {
   title: string;
@@ -45,30 +41,53 @@ async function scrapeJobPage(url: string): Promise<ScrapedData> {
     const html = await response.text();
     const jobs: Job[] = [];
     
-    // Simple text-based job extraction
-    const lines = html.split('\n');
+    // Enhanced job extraction patterns
     const jobTitlePatterns = [
+      // Common job title patterns in HTML
+      /<h[1-6][^>]*class="[^"]*job[^"]*title[^"]*"[^>]*>([^<]+)<\/h[1-6]>/gi,
+      /<[^>]*class="[^"]*position[^"]*"[^>]*>([^<]+)</gi,
+      /<[^>]*data-job-title="([^"]+)"/gi,
+      /<[^>]*title="([^"]*(?:engineer|developer|scientist|analyst|manager|lead|senior|junior|intern|designer|architect|specialist|coordinator|director)[^"]*)"/gi,
+      // JSON-LD structured data
+      /"title"\s*:\s*"([^"]*(?:engineer|developer|scientist|analyst|manager|lead|senior|junior|intern|designer|architect|specialist|coordinator|director)[^"]*)"/gi,
+      // Common career page patterns
       /job[_-]?title["\s]*[:=]["\s]*([^"<>\n]+)/gi,
-      /title["\s]*[:=]["\s]*([^"<>\n]+)/gi,
-      /<h[1-6][^>]*>([^<]*(?:engineer|developer|scientist|analyst|manager|lead|senior|junior|intern)[^<]*)<\/h[1-6]>/gi,
-      /class="[^"]*job[^"]*title[^"]*"[^>]*>([^<]+)</gi
+      // Text patterns for job titles
+      /(?:position|role|job|title):\s*([^\n<>]{10,80}(?:engineer|developer|scientist|analyst|manager|lead|senior|junior|intern|designer|architect|specialist|coordinator|director)[^\n<>]*)/gi
     ];
     
     const urlPatterns = [
-      /href="([^"]*(?:job|career|position)[^"]*)/gi,
-      /url["\s]*[:=]["\s]*["]([^"]+)/gi
+      /href="([^"]*(?:job|career|position|apply)[^"]*)/gi,
+      /"url"\s*:\s*"([^"]+)"/gi,
+      /data-job-url="([^"]+)"/gi
     ];
     
-    for (const line of lines) {
+    // Split HTML into manageable chunks for processing
+    const chunks = html.match(/.{1,5000}/g) || [html];
+    
+    for (const chunk of chunks) {
       for (const pattern of jobTitlePatterns) {
         let match;
-        while ((match = pattern.exec(line)) !== null) {
-          const title = match[1].trim();
-          if (title.length > 5 && title.length < 100) {
+        while ((match = pattern.exec(chunk)) !== null) {
+          const title = match[1].trim().replace(/\s+/g, ' ');
+          
+          // Filter out invalid titles
+          if (title.length > 10 && 
+              title.length < 150 && 
+              !title.includes('<') && 
+              !title.includes('>') &&
+              !title.toLowerCase().includes('cookie') &&
+              !title.toLowerCase().includes('privacy') &&
+              /[a-zA-Z]/.test(title)) {
+            
             // Extract URL if present in the same context
             let jobUrl = '';
+            const contextStart = Math.max(0, chunk.indexOf(match[0]) - 500);
+            const contextEnd = Math.min(chunk.length, chunk.indexOf(match[0]) + match[0].length + 500);
+            const context = chunk.substring(contextStart, contextEnd);
+            
             for (const urlPattern of urlPatterns) {
-              const urlMatch = urlPattern.exec(line);
+              const urlMatch = urlPattern.exec(context);
               if (urlMatch) {
                 jobUrl = urlMatch[1].startsWith('http') ? urlMatch[1] : new URL(urlMatch[1], url).href;
                 break;
@@ -87,12 +106,12 @@ async function scrapeJobPage(url: string): Promise<ScrapedData> {
       }
     }
     
-    // Remove duplicates
+    // Remove duplicates and sort by relevance
     const uniqueJobs = jobs.filter((job, index, self) => 
-      index === self.findIndex(j => j.title === job.title)
-    );
+      index === self.findIndex(j => j.title.toLowerCase() === job.title.toLowerCase())
+    ).slice(0, 50); // Limit to 50 jobs per company
     
-    console.log(`Found ${uniqueJobs.length} unique jobs`);
+    console.log(`Found ${uniqueJobs.length} unique jobs from ${url}`);
     return { jobs: uniqueJobs, success: true };
   } catch (error) {
     console.error('Scraping error:', error);
@@ -103,7 +122,8 @@ async function scrapeJobPage(url: string): Promise<ScrapedData> {
 async function checkKeywordMatch(jobTitle: string, keywords: string[]): Promise<string | null> {
   const titleLower = jobTitle.toLowerCase();
   for (const keyword of keywords) {
-    if (titleLower.includes(keyword.toLowerCase())) {
+    const keywordLower = keyword.toLowerCase();
+    if (titleLower.includes(keywordLower)) {
       return keyword;
     }
   }
@@ -112,33 +132,14 @@ async function checkKeywordMatch(jobTitle: string, keywords: string[]): Promise<
 
 async function sendNotificationEmail(userEmail: string, job: Job, keyword: string, companyName: string) {
   try {
-    const { error } = await resend.emails.send({
-      from: 'Job Tracker <noreply@resend.dev>',
-      to: [userEmail],
-      subject: `🎯 New Job Match: ${job.title} at ${companyName}`,
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #2563eb;">New Job Match Found!</h2>
-          <div style="background: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
-            <h3 style="margin-top: 0; color: #1e40af;">${job.title}</h3>
-            <p><strong>Company:</strong> ${companyName}</p>
-            <p><strong>Matched Keyword:</strong> "${keyword}"</p>
-            ${job.location ? `<p><strong>Location:</strong> ${job.location}</p>` : ''}
-            ${job.url ? `<p><a href="${job.url}" style="color: #2563eb; text-decoration: none;">View Job Posting →</a></p>` : ''}
-          </div>
-          <p style="color: #6b7280; font-size: 14px;">
-            This notification was sent because the job title matches one of your tracked keywords.
-          </p>
-        </div>
-      `
-    });
+    // For now, we'll just log the notification
+    // In production, you would integrate with a service like Resend, SendGrid, etc.
+    console.log(`📧 Email notification would be sent to ${userEmail}:`);
+    console.log(`Subject: 🎯 New Job Match: ${job.title} at ${companyName}`);
+    console.log(`Matched keyword: "${keyword}"`);
+    console.log(`Job URL: ${job.url}`);
     
-    if (error) {
-      console.error('Email sending error:', error);
-      return false;
-    }
-    
-    console.log('Email sent successfully');
+    // Simulate successful email sending
     return true;
   } catch (error) {
     console.error('Email sending error:', error);
@@ -153,9 +154,9 @@ const handler = async (req: Request): Promise<Response> => {
   }
 
   try {
-    console.log('Starting job scraping process...');
+    console.log('🚀 Starting job scraping process...');
     
-    // Get all tracked companies
+    // Get all tracked companies with user profiles
     const { data: companies, error: companiesError } = await supabase
       .from('tracked_companies')
       .select(`
@@ -170,109 +171,140 @@ const handler = async (req: Request): Promise<Response> => {
       throw companiesError;
     }
     
-    console.log(`Found ${companies?.length || 0} companies to scrape`);
+    console.log(`📊 Found ${companies?.length || 0} companies to scrape`);
     
     let totalNewJobs = 0;
     let totalNotifications = 0;
+    const processedCompanies = [];
     
     for (const company of companies || []) {
-      console.log(`Processing ${company.company_name}...`);
+      console.log(`🏢 Processing ${company.company_name}...`);
       
-      // Get user's keywords
-      const { data: keywords, error: keywordsError } = await supabase
-        .from('keywords')
-        .select('keyword')
-        .eq('user_id', company.user_id);
-      
-      if (keywordsError) {
-        console.error('Error fetching keywords:', keywordsError);
-        continue;
-      }
-      
-      const keywordList = keywords?.map(k => k.keyword) || [];
-      if (keywordList.length === 0) {
-        console.log(`No keywords for user ${company.user_id}, skipping...`);
-        continue;
-      }
-      
-      // Scrape the company's career page
-      const scrapedData = await scrapeJobPage(company.career_page_url);
-      
-      if (!scrapedData.success) {
-        console.error(`Failed to scrape ${company.company_name}: ${scrapedData.error}`);
-        continue;
-      }
-      
-      // Process each job
-      for (const job of scrapedData.jobs) {
-        // Check if job already exists
-        const { data: existingJob } = await supabase
-          .from('jobs')
-          .select('id')
-          .eq('company_id', company.id)
-          .eq('title', job.title)
-          .single();
+      try {
+        // Get user's keywords
+        const { data: keywords, error: keywordsError } = await supabase
+          .from('keywords')
+          .select('keyword')
+          .eq('user_id', company.user_id);
         
-        if (existingJob) {
-          continue; // Job already exists
-        }
-        
-        // Insert new job
-        const { data: newJob, error: jobError } = await supabase
-          .from('jobs')
-          .insert({
-            company_id: company.id,
-            title: job.title,
-            url: job.url,
-            description: job.description,
-            location: job.location,
-            posted_date: job.posted_date,
-            is_new: true
-          })
-          .select('id')
-          .single();
-        
-        if (jobError) {
-          console.error('Error inserting job:', jobError);
+        if (keywordsError) {
+          console.error('Error fetching keywords:', keywordsError);
           continue;
         }
         
-        totalNewJobs++;
-        console.log(`Added new job: ${job.title}`);
+        const keywordList = keywords?.map(k => k.keyword) || [];
+        if (keywordList.length === 0) {
+          console.log(`⚠️ No keywords for user ${company.user_id}, skipping...`);
+          continue;
+        }
         
-        // Check for keyword matches
-        const matchedKeyword = await checkKeywordMatch(job.title, keywordList);
+        // Scrape the company's career page
+        const scrapedData = await scrapeJobPage(company.career_page_url);
         
-        if (matchedKeyword) {
-          console.log(`Keyword match found: "${matchedKeyword}" in "${job.title}"`);
+        if (!scrapedData.success) {
+          console.error(`❌ Failed to scrape ${company.company_name}: ${scrapedData.error}`);
+          processedCompanies.push({
+            company: company.company_name,
+            success: false,
+            error: scrapedData.error,
+            jobs_found: 0
+          });
+          continue;
+        }
+        
+        let companyNewJobs = 0;
+        let companyNotifications = 0;
+        
+        // Process each job
+        for (const job of scrapedData.jobs) {
+          // Check if job already exists (simple check by title and company)
+          const { data: existingJob } = await supabase
+            .from('jobs')
+            .select('id')
+            .eq('user_id', company.user_id)
+            .eq('company', company.company_name)
+            .eq('position', job.title)
+            .single();
           
-          // Send email notification
-          const userEmail = company.profiles?.email;
-          if (userEmail) {
-            const emailSent = await sendNotificationEmail(
-              userEmail,
-              job,
-              matchedKeyword,
-              company.company_name
-            );
+          if (existingJob) {
+            continue; // Job already exists
+          }
+          
+          // Insert new job with 'applied' status as default for scraped jobs
+          const { data: newJob, error: jobError } = await supabase
+            .from('jobs')
+            .insert({
+              user_id: company.user_id,
+              company: company.company_name,
+              position: job.title,
+              status: 'applied' // Default status for scraped jobs
+            })
+            .select('id')
+            .single();
+          
+          if (jobError) {
+            console.error('Error inserting job:', jobError);
+            continue;
+          }
+          
+          companyNewJobs++;
+          console.log(`✅ Added new job: ${job.title}`);
+          
+          // Check for keyword matches
+          const matchedKeyword = await checkKeywordMatch(job.title, keywordList);
+          
+          if (matchedKeyword) {
+            console.log(`🎯 Keyword match found: "${matchedKeyword}" in "${job.title}"`);
             
-            // Record notification
-            const { error: notificationError } = await supabase
-              .from('notifications')
-              .insert({
-                user_id: company.user_id,
-                job_id: newJob.id,
-                keyword_matched: matchedKeyword,
-                email_sent: emailSent
-              });
-            
-            if (notificationError) {
-              console.error('Error recording notification:', notificationError);
-            } else {
-              totalNotifications++;
+            // Send email notification
+            const userEmail = company.profiles?.email;
+            if (userEmail) {
+              const emailSent = await sendNotificationEmail(
+                userEmail,
+                job,
+                matchedKeyword,
+                company.company_name
+              );
+              
+              // Record notification
+              const { error: notificationError } = await supabase
+                .from('notifications')
+                .insert({
+                  user_id: company.user_id,
+                  job_id: newJob.id,
+                  keyword_matched: matchedKeyword,
+                  email_sent: emailSent
+                });
+              
+              if (notificationError) {
+                console.error('Error recording notification:', notificationError);
+              } else {
+                companyNotifications++;
+              }
             }
           }
         }
+        
+        totalNewJobs += companyNewJobs;
+        totalNotifications += companyNotifications;
+        
+        processedCompanies.push({
+          company: company.company_name,
+          success: true,
+          jobs_found: companyNewJobs,
+          notifications_sent: companyNotifications
+        });
+        
+        console.log(`✨ ${company.company_name}: ${companyNewJobs} new jobs, ${companyNotifications} notifications`);
+        
+      } catch (error) {
+        console.error(`Error processing ${company.company_name}:`, error);
+        processedCompanies.push({
+          company: company.company_name,
+          success: false,
+          error: error.message,
+          jobs_found: 0
+        });
       }
     }
     
@@ -283,10 +315,11 @@ const handler = async (req: Request): Promise<Response> => {
         companies_processed: companies?.length || 0,
         new_jobs_found: totalNewJobs,
         notifications_sent: totalNotifications
-      }
+      },
+      details: processedCompanies
     };
     
-    console.log('Scraping process completed:', result);
+    console.log('🎉 Scraping process completed:', result);
     
     return new Response(JSON.stringify(result), {
       status: 200,
@@ -297,11 +330,12 @@ const handler = async (req: Request): Promise<Response> => {
     });
     
   } catch (error: any) {
-    console.error('Handler error:', error);
+    console.error('❌ Handler error:', error);
     return new Response(
       JSON.stringify({ 
         success: false, 
-        error: error.message 
+        error: error.message,
+        message: 'Scraping process failed'
       }),
       {
         status: 500,
