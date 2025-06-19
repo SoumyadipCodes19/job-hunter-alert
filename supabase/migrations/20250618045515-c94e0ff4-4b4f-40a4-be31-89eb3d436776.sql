@@ -1,3 +1,41 @@
+-- Create jobs table (app-compatible)
+CREATE TABLE IF NOT EXISTS public.jobs (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    company TEXT NOT NULL,
+    position TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('applied', 'interviewing', 'offered', 'rejected')),
+    CONSTRAINT jobs_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE
+);
+
+-- Enable Row Level Security
+ALTER TABLE public.jobs ENABLE ROW LEVEL SECURITY;
+
+-- Create policy to allow users to view their own jobs
+CREATE POLICY "Users can view their own jobs"
+    ON public.jobs
+    FOR SELECT
+    USING (auth.uid() = user_id);
+
+-- Create policy to allow users to insert their own jobs
+CREATE POLICY "Users can insert their own jobs"
+    ON public.jobs
+    FOR INSERT
+    WITH CHECK (auth.uid() = user_id);
+
+-- Create policy to allow users to update their own jobs
+CREATE POLICY "Users can update their own jobs"
+    ON public.jobs
+    FOR UPDATE
+    USING (auth.uid() = user_id)
+    WITH CHECK (auth.uid() = user_id);
+
+-- Create policy to allow users to delete their own jobs
+CREATE POLICY "Users can delete their own jobs"
+    ON public.jobs
+    FOR DELETE
+    USING (auth.uid() = user_id);
 
 -- Create user profiles table
 CREATE TABLE public.profiles (
@@ -26,21 +64,6 @@ CREATE TABLE public.keywords (
   PRIMARY KEY (id)
 );
 
--- Create jobs table to store scraped jobs
-CREATE TABLE public.jobs (
-  id UUID NOT NULL DEFAULT gen_random_uuid(),
-  company_id UUID NOT NULL REFERENCES public.tracked_companies ON DELETE CASCADE,
-  title TEXT NOT NULL,
-  url TEXT,
-  description TEXT,
-  location TEXT,
-  posted_date TIMESTAMP WITH TIME ZONE,
-  scraped_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
-  is_new BOOLEAN DEFAULT true,
-  PRIMARY KEY (id),
-  UNIQUE(company_id, title, url)
-);
-
 -- Create notifications table
 CREATE TABLE public.notifications (
   id UUID NOT NULL DEFAULT gen_random_uuid(),
@@ -56,7 +79,6 @@ CREATE TABLE public.notifications (
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.tracked_companies ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.keywords ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.jobs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 
 -- Create RLS policies for profiles
@@ -74,14 +96,6 @@ CREATE POLICY "Users can manage their own tracked companies" ON public.tracked_c
 -- Create RLS policies for keywords
 CREATE POLICY "Users can manage their own keywords" ON public.keywords
   FOR ALL USING (auth.uid() = user_id);
-
--- Create RLS policies for jobs
-CREATE POLICY "Users can view jobs from their tracked companies" ON public.jobs
-  FOR SELECT USING (
-    company_id IN (
-      SELECT id FROM public.tracked_companies WHERE user_id = auth.uid()
-    )
-  );
 
 -- Create RLS policies for notifications
 CREATE POLICY "Users can view their own notifications" ON public.notifications

@@ -6,52 +6,34 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[]
 
-export type Database = {
+export interface Database {
   public: {
     Tables: {
       jobs: {
         Row: {
-          company_id: string
-          description: string | null
           id: string
-          is_new: boolean | null
-          location: string | null
-          posted_date: string | null
-          scraped_at: string
-          title: string
-          url: string | null
+          created_at: string
+          user_id: string
+          company: string
+          position: string
+          status: 'applied' | 'interviewing' | 'offered' | 'rejected'
         }
         Insert: {
-          company_id: string
-          description?: string | null
           id?: string
-          is_new?: boolean | null
-          location?: string | null
-          posted_date?: string | null
-          scraped_at?: string
-          title: string
-          url?: string | null
+          created_at?: string
+          user_id: string
+          company: string
+          position: string
+          status: 'applied' | 'interviewing' | 'offered' | 'rejected'
         }
         Update: {
-          company_id?: string
-          description?: string | null
           id?: string
-          is_new?: boolean | null
-          location?: string | null
-          posted_date?: string | null
-          scraped_at?: string
-          title?: string
-          url?: string | null
+          created_at?: string
+          user_id?: string
+          company?: string
+          position?: string
+          status?: 'applied' | 'interviewing' | 'offered' | 'rejected'
         }
-        Relationships: [
-          {
-            foreignKeyName: "jobs_company_id_fkey"
-            columns: ["company_id"]
-            isOneToOne: false
-            referencedRelation: "tracked_companies"
-            referencedColumns: ["id"]
-          },
-        ]
       }
       keywords: {
         Row: {
